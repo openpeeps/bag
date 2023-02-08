@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://github.com/openpeep/bag/blob/main/.github/logo.png" width="90px"><br>
+  <img src="https://github.com/openpeep/bag/blob/main/.github/logo.png" width="64px"><br>
   Validate HTTP input data in a fancy way.<br>projects and other cool things. 👑 Written in Nim language
 </p>
 
