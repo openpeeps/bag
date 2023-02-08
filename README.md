@@ -14,6 +14,8 @@
 
 ## 😍 Key Features
 - [x] Macro-based validation
+- [x] Framework agnostic
+- [x] i18n support
 - [x] Based on [Valido package](https://github.com/openpeep/valido)
 - [x] Open Source | `MIT` License
 - [x] Written in 👑 Nim language
@@ -24,12 +26,10 @@ The macro way
 ```nim
 var fields = [("email", "test@example.com"), ("password", "123admin")]
 newBag fields:
-  email: TEmail
+  email: TEmail or "auth.error.email"
   password: TPassword or "auth.error.password":
-    min: 30 or "auth.error.password.min"
-    max: 40
-  message: TTextarea
-  *remember: TCheckbox  # Optional field
+    min: 8 or "auth.error.password.min"
+  *remember: TCheckbox  # Optional field. Default: false
 ```
 
 ### ❤ Contributions & Support
