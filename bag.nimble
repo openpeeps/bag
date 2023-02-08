@@ -14,4 +14,4 @@ requires "valido >= 0.1.0"
 
 task dev, "dev":
   echo "\n✨ Compiling..." & "\n"
-  exec "nim c --gc:arc --path:. --out:bin/valido src/valido.nim"
+  exec "nim c --gc:arc --path:. --out:bin/bag src/bag.nim"
