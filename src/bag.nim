@@ -158,7 +158,6 @@ template handleFilters() =
     )
   elif eqIdent(c[0], "options"):
     # Setup options, usually used for select boxes or datalist.
-    # echo c[1][0].kind
     expectKind c[1], nnkStmtList
     if c[1][0].kind == nnkInfix:
       expectKind c[1][0][2], nnkStrLit # error message
@@ -247,7 +246,6 @@ macro newBag*(data, rules) =
     if r.kind == nnkCall:
       # handle required fields
       let node = parseRule(r)
-      # echo node.repr
       rulesList.add(
         newCall(
           ident "addRule",
@@ -263,8 +261,6 @@ macro newBag*(data, rules) =
   result.add rulesList
   result.add quote do:
     Bag.validate(`data`)
-
-  echo result.repr
 
 when isMainModule:
   var fields = @[
