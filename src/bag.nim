@@ -64,7 +64,10 @@ type
   Rule* = ref object
     id*: string
     required*: bool
-    ftype*: TField
+    case ftype*: TField
+    of TSelect:
+      selectOptions*: seq[string]
+    else: discard 
     error*: string
     min*, max*: MinMax
 
@@ -102,31 +105,78 @@ template minMaxCheck() =
 
 proc validate*(bag: InputBag, data: seq[(string, string)]) =
   for f in data:
-    if bag.rules.hasKey(f[0]):
-      let rule = bag.rules[f[0]]
+    let
+      k = f[0]
+      v = f[1]
+    if bag.rules.hasKey(k):
+      let rule = bag.rules[k]
       case rule.ftype:
       of TEmail:
-        if not valido.isEmail(f[1]): Fail
+        if not valido.isEmail(v): Fail
       of TPassword:
-        if not valido.isStrongPassword(f[1]): Fail
+        if not valido.isStrongPassword(v): Fail
       of TCheckbox:
-        if f[1] != "on": Fail
+        if v != "on": Fail
       of TText:
         if rule.required:
-          if valido.isEmpty(f[1]): Fail
+          if valido.isEmpty(k): Fail
           else: minMaxCheck
         else: minMaxCheck
       of TTextarea:
         if rule.required:
-          if isEmpty(f[1]): Fail
+          if isEmpty(v): Fail
           else: minMaxCheck
         else: minMaxCheck
+      of TSelect:
+        if rule.required:
+          if isEmpty(v): Fail
+          elif v notin rule.selectOptions: Fail
       else: discard
-      bag.rules.del(f[0])
+      bag.rules.del(k)
   for k, rule in pairs bag.rules:
     if rule.required:
       add bag.failed, (rule.id, rule.error)
   bag.rules.clear()
+
+template handleFilters() =
+  if eqIdent(c[0], "min") or eqIdent(c[0], "max"):
+    # Setup ranges (min/max)
+    newRule.add(
+      newColonExpr(c[0],
+        nnkObjConstr.newTree(
+          ident "MinMax",
+          newColonExpr(
+            ident "length",
+            c[1][0][1]
+          ),
+          newColonExpr(
+            ident "error",
+            c[1][0][2]
+          )
+        )
+      )
+    )
+  elif eqIdent(c[0], "options"):
+    # Setup options, usually used for select boxes or datalist.
+    # echo c[1][0].kind
+    expectKind c[1], nnkStmtList
+    if c[1][0].kind == nnkInfix:
+      expectKind c[1][0][2], nnkStrLit # error message
+      if c[1][0][1].kind == nnkPrefix:
+        # handle options in a sequence
+        newRule.add(
+          newColonExpr(ident "selectOptions", c[1][0][1]),
+          newColonExpr(ident "error", c[1][0][2])
+        )
+      elif c[1][0][1].kind == nnkBracket:
+        # handle options in array
+        newRule.add(
+          newColonExpr(
+            ident "selectOptions",
+            nnkPrefix.newTree(ident "@", c[1][0][1])
+          ),
+          newColonExpr(ident "error", c[1][0][2])
+        )
 
 proc parseRule(rule: NimNode, isRequired = true): NimNode {.compileTime.} =
   expectKind rule[0], nnkIdent
@@ -146,7 +196,7 @@ proc parseRule(rule: NimNode, isRequired = true): NimNode {.compileTime.} =
           expectKind r[1], nnkIdent
           newRule.add(
             newColonExpr(ident "id", newLit rule[0].strVal),
-            newColonExpr(ident "ftype", ident r[1].strVal),
+            newColonExpr(ident "ftype", r[1]),
             newColonExpr(ident "required", newLit isRequired),
             newColonExpr(ident "error", r[2])
           )
@@ -156,22 +206,16 @@ proc parseRule(rule: NimNode, isRequired = true): NimNode {.compileTime.} =
           expectKind c, nnkCall
           expectKind c[0], nnkIdent
           expectKind c[1], nnkStmtList
-          if eqIdent(c[0], "min") or eqIdent(c[0], "max"):
-            newRule.add(
-              newColonExpr(c[0],
-                nnkObjConstr.newTree(
-                  ident "MinMax",
-                  newColonExpr(
-                    ident "length",
-                    c[1][0][1]
-                  ),
-                  newColonExpr(
-                    ident "error",
-                    c[1][0][2]
-                  )
-                )
-              )
-            )
+          handleFilters()
+    elif r.kind == nnkCall:
+      expectKind r[1], nnkStmtList
+      newRule.add(
+        newColonExpr(ident "id", newLit rule[0].strVal),
+        newColonExpr(ident "ftype", r[0]),
+        newColonExpr(ident "required", newLit isRequired),
+      )
+      for c in r[1]:
+        handleFilters()
   result = newRule
 
 macro newBag*(data, rules) =
@@ -219,11 +263,15 @@ macro newBag*(data, rules) =
   result.add rulesList
   result.add quote do:
     Bag.validate(`data`)
+
+  echo result.repr
+
 when isMainModule:
   var fields = @[
     ("email", "test@examplecom"),
     ("password", "123admin"),
-    ("message", "Lorem ipsum something better than that")
+    ("message", "Lorem ipsum something better than that"),
+    ("selection", "one")
   ]
   newBag fields:
     text: TText or "auth.error.name"
@@ -233,6 +281,8 @@ when isMainModule:
     message: TTextarea or "comment.message.empty":
       min: 4 or "comment.message.min"
       max: 6 or "comment.message.max"
+    selection: TSelect:
+      options: @["one", "two", "three"] or "select.none"
     *remember: TCheckbox
 
   var errorMessages = toTable({
@@ -241,11 +291,13 @@ when isMainModule:
     "auth.error.password": "Invalid password",
     "comment.message.empty": "Missing a message",
     "comment.message.min": "Min 80 characters",
-    "comment.message.max": "Max 120 characters"
+    "comment.message.max": "Max 120 characters",
+    "select.none": "Invalid option"
   })
   proc i18n(key: string): string =
     result = errorMessages[key]
 
   if not Bag.isValid:
     for e in Bag.getErrors:
-      echo i18n(e[1])
+      if e[1].len != 0:
+        echo i18n(e[1])
