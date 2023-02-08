@@ -24,13 +24,22 @@
 
 The macro way
 ```nim
-var fields = [("email", "test@example.com"), ("password", "123admin")]
-newBag fields:
+# can be a seq/array containing a key/value tuple (string, string)
+var data = [("email", "test@example.com"), ("password", "123admin")]
+
+# create a new bag with given data
+newBag data:
   email: TEmail or "auth.error.email"
   password: TPassword or "auth.error.password":
     min: 8 or "auth.error.password.min"
   *remember: TCheckbox  # Optional field. Default: false
+
+if Bag.isInvalid:
+  for err in Bag.getErrors:
+    echo err
 ```
+
+For more examples, check in [unittests](https://github.com/openpeep/bag/blob/main/tests/test1.nim)
 
 ### ❤ Contributions & Support
 - 🐛 Found a bug? [Create a new Issue](https://github.com/openpeep/bag/issues)
