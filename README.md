@@ -1,6 +1,6 @@
 <p align="center">
   <img src="https://github.com/openpeep/bag/blob/main/.github/logo.png" width="64px"><br>
-  Validate HTTP input data in a fancy way.<br>projects and other cool things. 👑 Written in Nim language
+  Validate HTTP input data in a fancy way.<br>👑 Written in Nim language
 </p>
 
 <p align="center">
@@ -33,8 +33,8 @@ newBag fields:
 ```
 
 ### ❤ Contributions & Support
-- 🐛 Found a bug? [Create a new Issue](/issues)
-- 👋 Wanna help? [Fork it!](/fork)
+- 🐛 Found a bug? [Create a new Issue](https://github.com/openpeep/bag/issues)
+- 👋 Wanna help? [Fork it!](https://github.com/openpeep/bag/fork)
 - 😎 [Get €20 in cloud credits from Hetzner](https://hetzner.cloud/?ref=Hm0mYGM9NxZ4)
 - 🥰 [Donate via PayPal address](https://www.paypal.com/donate/?hosted_button_id=RJK3ZTDWPL55C)
 
