@@ -44,6 +44,7 @@ type
     TJSON
     TMD5
     TPort
+    TPasswordStrength
     TAlpha
     TAlphanumeric
     TUppercase
@@ -56,8 +57,8 @@ type
     TCSRF
 
   MinMax* = ref object
-    length: int
-    error: string
+    length*: int
+    error*: string
 
   Rule* = ref object
     id*: string
@@ -66,7 +67,7 @@ type
     of TSelect:
       selectOptions*: seq[string]
     of TDate:
-      formatDate: string
+      formatDate*: string
       minDate*, maxDate*: tuple[isset: bool, error: string, date: DateTime]
     else: discard 
     error*: string
@@ -78,6 +79,9 @@ type
     failed: seq[(string, string)]
     rules: Rules
 
+#
+# Runtime API
+#
 proc isValid*(bag: InputBag): bool =
   result = bag.failed.len == 0
 
@@ -93,8 +97,8 @@ proc addRule*(bag: InputBag, rule: Rule) =
 template Fail() =
   add bag.failed, (rule.id, rule.error)
 
-template Fail(error: string) =
-  add bag.failed, (rule.id, error)
+template Fail(error: string, altError = "") =
+  add bag.failed, (rule.id, if error.len == 0: altError else: error)
 
 template minMaxCheck() =
   if rule.min != nil:
@@ -104,7 +108,7 @@ template minMaxCheck() =
     if not valido.isMax(f[1], rule.max.length):
       Fail rule.max.error
 
-proc validate*(bag: InputBag, data: seq[(string, string)]) =
+proc validate*(bag: InputBag, data: openarray[(string, string)]) =
   for f in data:
     let
       k = f[0]
@@ -116,26 +120,26 @@ proc validate*(bag: InputBag, data: seq[(string, string)]) =
         if not valido.isEmpty v:
           if not valido.isEmail v: Fail
         elif rule.required: Fail
-      of TPassword:
+      of TPasswordStrength:
         if not valido.isEmpty v:
           if not valido.isStrongPassword v: Fail
-        elif rule.required: Fail 
+        elif rule.required: Fail         
+      of TPassword:
+        if valido.isEmpty(v) and rule.required: Fail
       of TCheckbox:
         if not valido.isEmpty v:
-          if v != "on": Fail
+          if v notin ["1", "on", "true", "checked"]: Fail
         elif rule.required: Fail
       of TDate:
         if not valido.isEmpty v:
           try:
             let inputDate = parse(v, rule.formatDate)
-            if rule.minDate.isset:
-              # set a min date
+            if rule.minDate.isset:  # set a min date
               if inputDate >= rule.minDate.date == false:
-                Fail rule.minDate.error
-            if rule.maxDate.isset:
-              # set a max date
+                Fail rule.minDate.error, rule.error
+            if rule.maxDate.isset:  # set a max date
               if inputDate <= rule.maxDate.date == false:
-                Fail rule.maxDate.error
+                Fail rule.maxDate.error, rule.error
           except TimeParseError, TimeFormatParseError:
             Fail
         elif rule.required: Fail
@@ -158,6 +162,9 @@ proc validate*(bag: InputBag, data: seq[(string, string)]) =
       add bag.failed, (rule.id, rule.error)
   bag.rules.clear()
 
+#
+# Compile time API
+#
 template handleFilters(node: NimNode) =
   case parsedFieldType:
   of TDate:
@@ -295,7 +302,7 @@ proc parseRule(rule: NimNode, isRequired = true): NimNode {.compileTime.} =
       )
       handleFilters(r[1])
   result = newRule
-  echo result.repr
+
 macro newBag*(data, rules) =
   ## Create a new input bag validation at compile time.
   ##
