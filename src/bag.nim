@@ -5,11 +5,11 @@
 #          https://github.com/openpeep/bag
 
 import pkg/valido
-import std/[macros, tables]
+import std/[macros, tables, times, strutils]
 
 type
   TField* = enum
-    TButton
+    tNone # used to ignore buttons or submit/reset inputs
     TCheckbox
     TColor
     TDate
@@ -23,10 +23,8 @@ type
     TTextarea
     TRadio
     TRange
-    TReset
     TSelect
     TSearch
-    TSubmit
     TTel
     TText
     TTime
@@ -67,6 +65,9 @@ type
     case ftype*: TField
     of TSelect:
       selectOptions*: seq[string]
+    of TDate:
+      formatDate: string
+      minDate*, maxDate*: tuple[isset: bool, error: string, date: DateTime]
     else: discard 
     error*: string
     min*, max*: MinMax
@@ -112,75 +113,147 @@ proc validate*(bag: InputBag, data: seq[(string, string)]) =
       let rule = bag.rules[k]
       case rule.ftype:
       of TEmail:
-        if not valido.isEmail(v): Fail
+        if not valido.isEmpty v:
+          if not valido.isEmail v: Fail
+        elif rule.required: Fail
       of TPassword:
-        if not valido.isStrongPassword(v): Fail
+        if not valido.isEmpty v:
+          if not valido.isStrongPassword v: Fail
+        elif rule.required: Fail 
       of TCheckbox:
-        if v != "on": Fail
+        if not valido.isEmpty v:
+          if v != "on": Fail
+        elif rule.required: Fail
+      of TDate:
+        if not valido.isEmpty v:
+          try:
+            let inputDate = parse(v, rule.formatDate)
+            if rule.minDate.isset:
+              # set a min date
+              if inputDate >= rule.minDate.date == false:
+                Fail rule.minDate.error
+            if rule.maxDate.isset:
+              # set a max date
+              if inputDate <= rule.maxDate.date == false:
+                Fail rule.maxDate.error
+          except TimeParseError, TimeFormatParseError:
+            Fail
+        elif rule.required: Fail
       of TText:
-        if rule.required:
-          if valido.isEmpty(k): Fail
-          else: minMaxCheck
-        else: minMaxCheck
+        if not valido.isEmpty v:
+          minMaxCheck
+        elif rule.required: Fail
       of TTextarea:
-        if rule.required:
-          if isEmpty(v): Fail
-          else: minMaxCheck
-        else: minMaxCheck
+        if not valido.isEmpty v:
+          minMaxCheck
+        elif rule.required: Fail
       of TSelect:
-        if rule.required:
-          if isEmpty(v): Fail
-          elif v notin rule.selectOptions: Fail
-      else: discard
+        if not valido.isEmpty v:
+          if v notin rule.selectOptions: Fail
+        elif rule.required: Fail
+      else: discard # TODO add more filters
       bag.rules.del(k)
   for k, rule in pairs bag.rules:
     if rule.required:
       add bag.failed, (rule.id, rule.error)
   bag.rules.clear()
 
-template handleFilters() =
-  if eqIdent(c[0], "min") or eqIdent(c[0], "max"):
-    # Setup ranges (min/max)
-    newRule.add(
-      newColonExpr(c[0],
-        nnkObjConstr.newTree(
-          ident "MinMax",
-          newColonExpr(
-            ident "length",
-            c[1][0][1]
-          ),
-          newColonExpr(
-            ident "error",
-            c[1][0][2]
+template handleFilters(node: NimNode) =
+  case parsedFieldType:
+  of TDate:
+    for c in node:
+      let fieldStr = c[0].strVal
+      if fieldStr notin ["min", "max"]:
+        error("Unrecognized field $1 for $2" % [fieldStr, tfield])
+      let dateFormat = fieldType[1]
+      if c[1][0].kind == nnkInfix:
+        expectKind c[1][0][2], nnkStrLit # error message
+        var dateTuple = nnkTupleConstr.newTree()
+        dateTuple.add(
+          newLit true,  # set isset status
+          c[1][0][2],   # set error message
+          newCall(
+            ident "parse",
+            c[1][0][1],
+            dateFormat
           )
         )
-      )
-    )
-  elif eqIdent(c[0], "options"):
-    # Setup options, usually used for select boxes or datalist.
-    expectKind c[1], nnkStmtList
-    if c[1][0].kind == nnkInfix:
-      expectKind c[1][0][2], nnkStrLit # error message
-      if c[1][0][1].kind == nnkPrefix:
-        # handle options in a sequence
-        newRule.add(
-          newColonExpr(ident "selectOptions", c[1][0][1]),
-          newColonExpr(ident "error", c[1][0][2])
-        )
-      elif c[1][0][1].kind == nnkBracket:
-        # handle options in array
         newRule.add(
           newColonExpr(
-            ident "selectOptions",
-            nnkPrefix.newTree(ident "@", c[1][0][1])
-          ),
-          newColonExpr(ident "error", c[1][0][2])
+            ident(fieldStr & "Date"),
+            dateTuple
+          )
+        )
+      elif c[1][0].kind == nnKStrLit:
+        var dateTuple = nnkTupleConstr.newTree()
+        dateTuple.add(
+          newLit true,  # set isset status
+          newLit "",    # no error message
+          newCall(
+            ident "parse",
+            c[1][0],
+            dateFormat
+          )
+        )
+        newRule.add(
+          newColonExpr(
+            ident(fieldStr & "Date"),
+            dateTuple
+          )
+        )
+    newRule.add(
+      newColonExpr(
+        ident "formatDate",
+        fieldType[1]
+      )
+    )
+  of TSelect:
+    for c in node:
+      if eqIdent(c[0], "options"):
+        expectKind c[1], nnkStmtList
+        if c[1][0].kind == nnkInfix:
+          expectKind c[1][0][2], nnkStrLit # error message
+          if c[1][0][1].kind == nnkPrefix:
+            # handle options in a sequence
+            newRule.add(
+              newColonExpr(ident "selectOptions", c[1][0][1]),
+              newColonExpr(ident "error", c[1][0][2])
+            )
+          elif c[1][0][1].kind == nnkBracket:
+            # handle options in array
+            newRule.add(
+              newColonExpr(
+                ident "selectOptions",
+                nnkPrefix.newTree(ident "@", c[1][0][1])
+              ),
+              newColonExpr(ident "error", c[1][0][2])
+            )
+      else: error("Missing `options` for TSelect rule")
+  else:
+    for c in node:
+      if eqIdent(c[0], "min") or eqIdent(c[0], "max"):
+        # Setup ranges (min/max)
+        newRule.add(
+          newColonExpr(c[0],
+            nnkObjConstr.newTree(
+              ident "MinMax",
+              newColonExpr(
+                ident "length",
+                c[1][0][1]
+              ),
+              newColonExpr(
+                ident "error",
+                c[1][0][2]
+              )
+            )
+          )
         )
 
 proc parseRule(rule: NimNode, isRequired = true): NimNode {.compileTime.} =
   expectKind rule[0], nnkIdent
   expectKind rule[1], nnkStmtList
   var newRule = newTree(nnkObjConstr).add(ident "Rule")
+  var tfield: string
   for r in rule[1]:
     if r.kind == nnkIdent:
       newRule.add(
@@ -189,34 +262,40 @@ proc parseRule(rule: NimNode, isRequired = true): NimNode {.compileTime.} =
         newColonExpr(ident "required", newLit isRequired),
       )
     elif r.kind == nnkInfix:
+      let fieldType = r[1]
+      if fieldType.kind == nnkIdent:
+        tfield = fieldType.strVal
+      elif fieldType.kind == nnkCall:
+        tfield = fieldType[0].strVal
       if r[0].kind == nnkIdent:
         if r[0].strVal == "or":
           expectKind r[2], nnkStrLit
-          expectKind r[1], nnkIdent
           newRule.add(
             newColonExpr(ident "id", newLit rule[0].strVal),
-            newColonExpr(ident "ftype", r[1]),
+            newColonExpr(ident "ftype", ident tfield),
             newColonExpr(ident "required", newLit isRequired),
             newColonExpr(ident "error", r[2])
           )
       if r.len == 4:
         expectKind r[3], nnkStmtList
-        for c in r[3]: # parse criterias
-          expectKind c, nnkCall
-          expectKind c[0], nnkIdent
-          expectKind c[1], nnkStmtList
-          handleFilters()
+        let parsedFieldType = parseEnum[TField](tfield)
+        handleFilters(r[3])
     elif r.kind == nnkCall:
+      let fieldType = r[0]
+      if fieldType.kind == nnkIdent:
+        tfield = fieldType.strVal
+      elif fieldType.kind == nnkCall:
+        tfield = fieldType[0].strVal
+      let parsedFieldType = parseEnum[TField](tfield)
       expectKind r[1], nnkStmtList
       newRule.add(
         newColonExpr(ident "id", newLit rule[0].strVal),
         newColonExpr(ident "ftype", r[0]),
         newColonExpr(ident "required", newLit isRequired),
       )
-      for c in r[1]:
-        handleFilters()
+      handleFilters(r[1])
   result = newRule
-
+  echo result.repr
 macro newBag*(data, rules) =
   ## Create a new input bag validation at compile time.
   ##
@@ -261,39 +340,3 @@ macro newBag*(data, rules) =
   result.add rulesList
   result.add quote do:
     Bag.validate(`data`)
-
-when isMainModule:
-  var fields = @[
-    ("email", "test@examplecom"),
-    ("password", "123admin"),
-    ("message", "Lorem ipsum something better than that"),
-    ("selection", "one")
-  ]
-  newBag fields:
-    text: TText or "auth.error.name"
-    email: TEmail or "auth.error.email"
-    password: TPassword or "auth.error.password":
-      min: 8 or "auth.error.password.min"
-    message: TTextarea or "comment.message.empty":
-      min: 4 or "comment.message.min"
-      max: 6 or "comment.message.max"
-    selection: TSelect:
-      options: @["one", "two", "three"] or "select.none"
-    *remember: TCheckbox
-
-  var errorMessages = toTable({
-    "auth.error.name": "Please provide a name",
-    "auth.error.email": "Invalid email address",
-    "auth.error.password": "Invalid password",
-    "comment.message.empty": "Missing a message",
-    "comment.message.min": "Min 80 characters",
-    "comment.message.max": "Max 120 characters",
-    "select.none": "Invalid option"
-  })
-  proc i18n(key: string): string =
-    result = errorMessages[key]
-
-  if not Bag.isValid:
-    for e in Bag.getErrors:
-      if e[1].len != 0:
-        echo i18n(e[1])
