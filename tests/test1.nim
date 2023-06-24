@@ -33,6 +33,15 @@ test "check TDate":
     if not Bag.isValid:
       check(Bag.getErrors[0][1] == "invalid.date.min")
 
+test "check TPassword":
+  for data in [[("mypassword", "1234")], [("mypassword", "/iwJN_zCO#@k")]]:
+    newBag data:
+      mypassword: TPassword or "requires.password":
+        min: 10 or "invalid.password.min"
+        max: 13 or "invalid.password.max"
+    if not Bag.isValid:
+      check Bag.getErrors[0][1] == "invalid.password.min"
+
 test "check TCheckbox":
   let invalid = [("mycheckbox", "yes")]
   let valid = [("mycheckbox", "true")]

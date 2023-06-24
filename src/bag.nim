@@ -126,6 +126,7 @@ proc validate*(bag: InputBag, data: openarray[(string, string)]) =
         elif rule.required: Fail         
       of TPassword:
         if valido.isEmpty(v) and rule.required: Fail
+        else: minMaxCheck
       of TCheckbox:
         if not valido.isEmpty v:
           if v notin ["1", "on", "true", "checked"]: Fail
@@ -240,6 +241,8 @@ template handleFilters(node: NimNode) =
     for c in node:
       if eqIdent(c[0], "min") or eqIdent(c[0], "max"):
         # Setup ranges (min/max)
+        expectKind(c[1][0], nnkInfix)
+        expectKind(c[1][0][0], nnkIdent)
         newRule.add(
           newColonExpr(c[0],
             nnkObjConstr.newTree(
