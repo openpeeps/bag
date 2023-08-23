@@ -10,51 +10,51 @@ import std/[macros, tables, times, strutils]
 type
   TField* = enum
     tNone # used to ignore buttons or submit/reset inputs
-    TCheckbox
-    TColor
-    TDate
-    TDatalist
-    TEmail
-    TFile
-    THidden
-    TMonth
-    TNumber
-    TPassword
-    TTextarea
-    TRadio
-    TRange
-    TSelect
-    TSearch
-    TTel
-    TText
-    TTime
-    TUrl
-    TWeek
+    tCheckbox
+    tColor
+    tDate
+    tDatalist
+    tEmail
+    tFile
+    tHidden
+    tMonth
+    tNumber
+    tPassword
+    tTextarea
+    tRadio
+    tRange
+    tSelect
+    tSearch
+    tTel
+    tText
+    tTime
+    tUrl
+    tWeek
     # special `text` based fields 
-    TBase32
-    TBase58
-    TBase64
-    TCard
-    TCountry
-    TCountryState
-    TCountryCapital
-    TCurrency
-    TEAN
-    TIP
-    TJSON
-    TMD5
-    TPort
-    TPasswordStrength
-    TAlpha
-    TAlphanumeric
-    TUppercase
-    TLowercase
-    TBool
-    TFloat
-    THex
-    TRegex
-    TUUID
-    TCSRF
+    tBase32
+    tBase58
+    tBase64
+    tCard
+    tCountry
+    tCountryState
+    tCountryCapital
+    tCurrency
+    tEAN
+    tIP
+    tJSON
+    tMD5
+    tPort
+    tPasswordStrength
+    tAlpha
+    tAlphanumeric
+    tUppercase
+    tLowercase
+    tBool
+    tFloat
+    tHex
+    tRegex
+    tUUID
+    tCSRF
 
   MinMax* = ref object
     length*: int
@@ -64,9 +64,9 @@ type
     id*: string
     required*: bool
     case ftype*: TField
-    of TSelect:
+    of tSelect:
       selectOptions*: seq[string]
-    of TDate:
+    of tDate:
       formatDate*: string
       minDate*, maxDate*: tuple[isset: bool, error: string, date: DateTime]
     else: discard 
@@ -116,22 +116,19 @@ proc validate*(bag: InputBag, data: openarray[(string, string)]) =
     if bag.rules.hasKey(k):
       let rule = bag.rules[k]
       case rule.ftype:
-      of TEmail:
+      of tEmail:
         if not valido.isEmpty v:
           if not valido.isEmail v: Fail
         elif rule.required: Fail
-      of TPasswordStrength:
+      of tPasswordStrength:
         if not valido.isEmpty v:
           if not valido.isStrongPassword v: Fail
         elif rule.required: Fail         
-      of TPassword:
-        if valido.isEmpty(v) and rule.required: Fail
-        else: minMaxCheck
-      of TCheckbox:
+      of tCheckbox:
         if not valido.isEmpty v:
-          if v notin ["1", "on", "true", "checked"]: Fail
+          if v notin ["0", "1", "off", "on", "false", "true", "unchecked", "checked"]: Fail
         elif rule.required: Fail
-      of TDate:
+      of tDate:
         if not valido.isEmpty v:
           try:
             let inputDate = parse(v, rule.formatDate)
@@ -144,15 +141,11 @@ proc validate*(bag: InputBag, data: openarray[(string, string)]) =
           except TimeParseError, TimeFormatParseError:
             Fail
         elif rule.required: Fail
-      of TText:
+      of tText, tTextarea, tPassword:
         if not valido.isEmpty v:
           minMaxCheck
         elif rule.required: Fail
-      of TTextarea:
-        if not valido.isEmpty v:
-          minMaxCheck
-        elif rule.required: Fail
-      of TSelect:
+      of tSelect:
         if not valido.isEmpty v:
           if v notin rule.selectOptions: Fail
         elif rule.required: Fail
@@ -168,7 +161,7 @@ proc validate*(bag: InputBag, data: openarray[(string, string)]) =
 #
 template handleFilters(node: NimNode) =
   case parsedFieldType:
-  of TDate:
+  of tDate:
     for c in node:
       let fieldStr = c[0].strVal
       if fieldStr notin ["min", "max"]:
@@ -215,7 +208,7 @@ template handleFilters(node: NimNode) =
         fieldType[1]
       )
     )
-  of TSelect:
+  of tSelect:
     for c in node:
       if eqIdent(c[0], "options"):
         expectKind c[1], nnkStmtList
@@ -236,7 +229,7 @@ template handleFilters(node: NimNode) =
               ),
               newColonExpr(ident "error", c[1][0][2])
             )
-      else: error("Missing `options` for TSelect rule")
+      else: error("Missing `options` for tSelect rule")
   else:
     for c in node:
       if eqIdent(c[0], "min") or eqIdent(c[0], "max"):
@@ -320,9 +313,9 @@ macro newBag*(data, rules) =
       ("remember", "on")
     ]
     newBag data:
-      email: TEmail or "Invalid email address"
-      password: TPassword or "Invalid password"
-      *remember: TCheckbox  # optional field, default: off/false
+      email: tEmail or "Invalid email address"
+      password: tPassword or "Invalid password"
+      *remember: tCheckbox  # optional field, default: off/false
 
   expectKind rules, nnkStmtList
   result = newStmtList()

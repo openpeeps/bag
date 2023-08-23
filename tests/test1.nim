@@ -9,51 +9,54 @@ test "can find errors":
   ]
 
   newBag fields:
-    text: TText or "auth.error.name"
-    email: TEmail or "auth.error.email"
-    password: TPassword or "auth.error.password"
-    message: TTextarea or "comment.message.empty":
+    text: tText or "auth.error.name"
+    email: tEmail or "auth.error.email"
+    password: tPassword or "auth.error.password"
+    message: tTextarea or "comment.message.empty":
       min: 10 or "comment.message.min"
       max: 20 or "comment.message.max"
-    *remember: TCheckbox
+    *remember: tCheckbox
 
   check Bag.isValid == false
   check Bag.getErrors[0][1] == "auth.error.email"
   check Bag.getErrors[1][1] == "auth.error.password"
   check Bag.getErrors[2][1] == "comment.message.max"
 
-test "check TDate":
+test "check tDate":
   let invalid = [("birthday", "1999-05-05")]
   let valid = [("birthday", "2001-05-05")]
   for data in [invalid, valid]:
     newBag data:
-      birthday: TDate("yyyy-MM-dd") or "invalid.date":
+      birthday: tDate("yyyy-MM-dd") or "invalid.date":
         min: "2000-12-01" or "invalid.date.min"
         max: "2010-05-06" or "invalid.date.min"
     if not Bag.isValid:
       check(Bag.getErrors[0][1] == "invalid.date.min")
 
-test "check TPassword":
+test "check tPassword":
   for data in [[("mypassword", "1234")], [("mypassword", "/iwJN_zCO#@k")]]:
     newBag data:
-      mypassword: TPassword or "requires.password":
+      mypassword: tPassword or "requires.password":
         min: 10 or "invalid.password.min"
         max: 13 or "invalid.password.max"
     if not Bag.isValid:
       check Bag.getErrors[0][1] == "invalid.password.min"
+
+test "check tFile":
+  ##
 
 test "check TCheckbox":
   let invalid = [("mycheckbox", "yes")]
   let valid = [("mycheckbox", "true")]
   proc checkValid() =
     newBag valid:
-      mycheckbox: TCheckbox or "invalid.checkbox"
+      mycheckbox: tCheckbox or "invalid.checkbox"
     check Bag.isValid == true
     check(Bag.getErrors.len == 0)
 
   proc checkInvalid() =
     newBag invalid:
-      mycheckbox: TCheckbox or "invalid.checkbox"
+      mycheckbox: tCheckbox or "invalid.checkbox"
     check Bag.isValid == false
     check(Bag.getErrors.len == 1)
     check(Bag.getErrors[0][1] == "invalid.checkbox")
@@ -61,19 +64,27 @@ test "check TCheckbox":
   checkValid()
   checkInvalid()
 
-test "check TPasswordStrength":
+test "check tSelect":
+  for data in [[("region", "ibiza")], [("region", "kefalonia")]]:
+    newBag data:
+      region: tSelect:
+        options: ["kefalonia", "paros"] or "unknown.region"
+    if not Bag.isValid:
+      check Bag.getErrors[0][1] == "unknown.region"
+
+test "check tPasswordStrength":
   let invalid = [("mypass", "sunandmoon12")]
   let valid = [("mypass", "x6y2C8Dt5Lgg")]
   
   proc checkValid() =
     newBag valid:
-      mypass: TPasswordStrength or "invalid.pass"
+      mypass: tPasswordStrength or "invalid.pass"
     check Bag.isValid == true
     check(Bag.getErrors.len == 0)
 
   proc checkInvalid() =
     newBag invalid:
-      mypass: TPasswordStrength or "invalid.pass"
+      mypass: tPasswordStrength or "invalid.pass"
     check Bag.isValid == false
     check(Bag.getErrors.len == 1)
     check(Bag.getErrors[0][1] == "invalid.pass")

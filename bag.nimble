@@ -10,7 +10,7 @@ srcDir        = "src"
 # Dependencies
 
 requires "nim >= 1.6.10"
-requires "valido >= 0.1.0"
+requires "valido#head"
 
 task dev, "dev":
   echo "\n✨ Compiling..." & "\n"
