@@ -42,9 +42,6 @@ test "check tPassword":
     if not Bag.isValid:
       check Bag.getErrors[0][1] == "invalid.password.min"
 
-test "check tFile":
-  ##
-
 test "check TCheckbox":
   let invalid = [("mycheckbox", "yes")]
   let valid = [("mycheckbox", "true")]
