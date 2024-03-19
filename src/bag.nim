@@ -9,7 +9,7 @@ import std/[macros, tables, times, strutils]
 
 type
   TField* = enum
-    tNone # used to ignore buttons or submit/reset inputs
+    tNone       # used to ignore `button`, `submit`, `reset` elements
     tCheckbox
     tColor
     tDate
@@ -299,7 +299,7 @@ proc parseRule(rule: NimNode, isRequired = true): NimNode {.compileTime.} =
       handleFilters(r[1])
   result = newRule
 
-macro newBag*(data, rules) =
+macro bag*(data: typed, rules: untyped, bodyFail: untyped = nil) =
   ## Create a new input bag validation at compile time.
   ##
   ## `data` expects a `seq[tuple[k, v: string]]`
@@ -312,15 +312,21 @@ macro newBag*(data, rules) =
       ("password", "123admin"),
       ("remember", "on")
     ]
-    newBag data:
+    bag data:
       email: tEmail or "Invalid email address"
       password: tPassword or "Invalid password"
       *remember: tCheckbox  # optional field, default: off/false
+    do:
+      # a runnable block of code in case validation fails
+      # `return` may be required to block code execution
+      echo "oups!"
+      return
+    echo "ok"
 
   expectKind rules, nnkStmtList
   result = newStmtList()
   let varBagInstance = newVarStmt(
-    ident "Bag",
+    ident "inputBag",
     newCall(ident "InputBag")
   )
   var rulesList = newStmtList()
@@ -331,7 +337,7 @@ macro newBag*(data, rules) =
       rulesList.add(
         newCall(
           ident "addRule",
-          ident "Bag",
+          ident "inputBag",
           node
         )
       )
@@ -342,4 +348,8 @@ macro newBag*(data, rules) =
   result.add varBagInstance
   result.add rulesList
   result.add quote do:
-    Bag.validate(`data`)
+    inputBag.validate(`data`)
+  if bodyFail != nil:
+    result.add quote do:
+      if inputBag.isInvalid:
+        `bodyFail`
