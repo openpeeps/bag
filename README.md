@@ -26,15 +26,14 @@
 # can be a seq/array containing a key/value tuple (string, string)
 var data = [("email", "test@example.com"), ("password", "123admin")]
 
-# create a new bag with given data
-newBag data:
+# create a new bag
+bag data:
   email: tEmail or "auth.error.email"
   password: tPassword or "auth.error.password":
     min: 8 or "auth.error.password.min"
   *remember: tCheckbox  # `*` prefix makes field optional
-
-if Bag.isInvalid:
-  for err in Bag.getErrors:
+do:
+  for err in inputBag.getErrors:
     echo err
 ```
 
@@ -48,4 +47,4 @@ For more examples, check in [unittests](https://github.com/openpeeps/bag/blob/ma
 
 ### 🎩 License
 Bag | MIT license. [Made by Humans from OpenPeeps](https://github.com/openpeeps).<br>
-Copyright &copy; 2023 OpenPeeps & Contributors &mdash; All rights reserved.
+Copyright &copy; 2024 OpenPeeps & Contributors &mdash; All rights reserved.
