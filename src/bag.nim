@@ -253,14 +253,20 @@ template handleFilters(node: NimNode) =
         )
 
 proc parseRule(rule: NimNode, isRequired = true): NimNode {.compileTime.} =
-  expectKind rule[0], nnkIdent
-  expectKind rule[1], nnkStmtList
-  var newRule = newTree(nnkObjConstr).add(ident "Rule")
-  var tfield: string
-  for r in rule[1]:
+  var
+    newRule = newTree(nnkObjConstr).add(ident "Rule")
+    tfield: string
+    id, ruleStmt: NimNode 
+  if rule.kind == nnkIdent:
+    id = rule[0]
+    ruleStmt = rule[1]
+  elif rule.kind == nnkPrefix:
+    id = rule[1]
+    ruleStmt = rule[2]
+  for r in ruleStmt:
     if r.kind == nnkIdent:
       newRule.add(
-        newColonExpr(ident "id", newLit rule[0].strVal),
+        newColonExpr(ident "id", newLit id.strVal),
         newColonExpr(ident "ftype", ident r.strVal),
         newColonExpr(ident "required", newLit isRequired),
       )
@@ -274,7 +280,7 @@ proc parseRule(rule: NimNode, isRequired = true): NimNode {.compileTime.} =
         if r[0].strVal == "or":
           expectKind r[2], nnkStrLit
           newRule.add(
-            newColonExpr(ident "id", newLit rule[0].strVal),
+            newColonExpr(ident "id", newLit id.strVal),
             newColonExpr(ident "ftype", ident tfield),
             newColonExpr(ident "required", newLit isRequired),
             newColonExpr(ident "error", r[2])
@@ -292,7 +298,7 @@ proc parseRule(rule: NimNode, isRequired = true): NimNode {.compileTime.} =
       let parsedFieldType = parseEnum[TField](tfield)
       expectKind r[1], nnkStmtList
       newRule.add(
-        newColonExpr(ident "id", newLit rule[0].strVal),
+        newColonExpr(ident "id", newLit id.strVal),
         newColonExpr(ident "ftype", r[0]),
         newColonExpr(ident "required", newLit isRequired),
       )
@@ -317,11 +323,8 @@ macro bag*(data: typed, rules: untyped, bodyFail: untyped = nil) =
       password: tPassword or "Invalid password"
       *remember: tCheckbox  # optional field, default: off/false
     do:
-      # a runnable block of code in case validation fails
-      # `return` may be required to block code execution
-      echo "oups!"
-      return
-    echo "ok"
+      for err in inputBag.errors:
+        echo err
 
   expectKind rules, nnkStmtList
   result = newStmtList()
@@ -331,19 +334,19 @@ macro bag*(data: typed, rules: untyped, bodyFail: untyped = nil) =
   )
   var rulesList = newStmtList()
   for r in rules:
-    if r.kind == nnkCall:
+    case r.kind
+    of nnkCall:
       # handle required fields
       let node = parseRule(r)
-      rulesList.add(
-        newCall(
-          ident "addRule",
-          ident "inputBag",
-          node
-        )
-      )
-    elif r.kind == nnkPrefix:
+      add rulesList, newCall(
+        ident"addRule", ident"inputBag", node)
+    of nnkPrefix:
       # handle optional fields
-      discard
+      if r[0].eqIdent"*":
+        let node = parseRule(r, false)
+        add rulesList, newCall(
+          ident"addRule", ident"inputBag", node)
+    else: discard # todo compile-time error
 
   result.add varBagInstance
   result.add rulesList
