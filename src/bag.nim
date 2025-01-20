@@ -4,8 +4,12 @@
 #          Made by Humans from OpenPeep
 #          https://github.com/openpeep/bag
 
-import pkg/valido
-import std/[macros, tables, times, strutils]
+import std/[macros, tables, times,
+      strutils, json, math, streams]
+
+import pkg/[valido, multipart]
+import pkg/filetype/image
+import pkg/filetype/audio
 
 type
   TField* = enum
@@ -55,17 +59,29 @@ type
     tRegex
     tUUID
     tCSRF
+    tDomain
 
   MinMax* = ref object
     length*: int
     error*: string
-
-  Rule* = ref object
+  
+  Rule* = object
     id*: string
     required*: bool
     case ftype*: TField
     of tSelect:
       selectOptions*: seq[string]
+    of tFile:
+      allowFileTypes*: (seq[string], string)
+        ## A tuple containing a seq of mimetypes `@["image/png"]`
+        ## and the error message
+      allowMultiple*: bool
+        ## Whether to allow multiple files
+      maxFiles*: (uint, string)
+        ## The maximum number of files that can be uploaded.
+      minFileSize*, maxFileSize*: uint
+        ## The min/max file size allowed in megabytes.
+        ## Where `0` means unmetered size
     of tDate:
       formatDate*: string
       minDate*, maxDate*: tuple[isset: bool, error: string, date: DateTime]
@@ -75,13 +91,21 @@ type
 
   Rules* = OrderedTable[string, Rule]
   
+  InputBagType* = enum
+    inputTypeUrlEncoded
+    inputTypeMultipart
+
   InputBag* = ref object
+    bagType: InputBagType
     failed: seq[(string, string)]
     rules: Rules
 
 #
 # Runtime API
 #
+proc newInputBag*(bagType: InputBagType): InputBag =
+  InputBag(bagType: bagType)
+
 proc isValid*(bag: InputBag): bool =
   result = bag.failed.len == 0
 
@@ -109,6 +133,7 @@ template minMaxCheck() =
       Fail rule.max.error
 
 proc validate*(bag: InputBag, data: openarray[(string, string)]) =
+  ## Validate data
   for f in data:
     let
       k = f[0]
@@ -131,7 +156,7 @@ proc validate*(bag: InputBag, data: openarray[(string, string)]) =
       of tDate:
         if not valido.isEmpty v:
           try:
-            let inputDate = parse(v, rule.formatDate)
+            let inputDate = times.parse(v, rule.formatDate)
             if rule.minDate.isset:  # set a min date
               if inputDate >= rule.minDate.date == false:
                 Fail rule.minDate.error, rule.error
@@ -149,6 +174,16 @@ proc validate*(bag: InputBag, data: openarray[(string, string)]) =
         if not valido.isEmpty v:
           if v notin rule.selectOptions: Fail
         elif rule.required: Fail
+      of tFile:
+        # echo v
+        # if not valido.isEmpty v:
+          # echo v
+        # elif rule.required: Fail
+        discard
+      of tDomain:
+        if not valido.isEmpty v:
+          if not valido.isDomain(v): Fail
+        elif rule.required: Fail
       else: discard # TODO add more filters
       bag.rules.del(k)
   for k, rule in pairs bag.rules:
@@ -156,16 +191,58 @@ proc validate*(bag: InputBag, data: openarray[(string, string)]) =
       add bag.failed, (rule.id, rule.error)
   bag.rules.clear()
 
+proc validate*(bag: InputBag, jsonData: JsonNode) =
+  ## Validate input data using JSON format
+  # todo handle bad format errors
+  if likely(jsonData.kind == JObject):
+    var data: seq[(string, string)]
+    for k, v in jsonData:
+      if likely(v.kind == JString):
+        add data, (k, v.getStr)
+      else: return
+    bag.validate(data)
+
+
+proc validateMultipart*(bag: InputBag, contentType,
+    multipartBody: sink string
+) =
+  ## Validates a multipart body using `pkg/multipart`.
+  ## 
+  ## Thanks to `pkg/filetypes`, the `multipart` parser can
+  ## validate the type based on magic numbers
+  ## signature while writing file contents to a temporary path.
+  ## 
+  ## In this case, the multipart parser will parsing
+  ## if the extracted signature is not in `allowFileTypes` sequence.
+  var magicSignature: seq[byte]
+  var fileCallback =
+    proc(boundary: ptr Boundary, pos: int, c: ptr char): bool =
+      if pos <= 4:
+        add magicSignature, c[].byte
+        return true
+      # else:
+        # echo magicSignature
+        # echo magicSignature.isOgg
+      result = true
+
+  var mp = initMultipart(contentType)
+  mp.parse(multipartBody)
+  for boundary in mp:
+    if boundary.dataType == MultipartFile:
+      echo boundary.getPath
+    else:
+      echo boundary.value
+
 #
 # Compile time API
 #
 template handleFilters(node: NimNode) =
-  case parsedFieldType:
+  case tField:
   of tDate:
     for c in node:
       let fieldStr = c[0].strVal
       if fieldStr notin ["min", "max"]:
-        error("Unrecognized field $1 for $2" % [fieldStr, tfield])
+        error("Unrecognized field $1 for $2" % [fieldStr, $tfield])
       let dateFormat = fieldType[1]
       if c[1][0].kind == nnkInfix:
         expectKind c[1][0][2], nnkStrLit # error message
@@ -230,108 +307,90 @@ template handleFilters(node: NimNode) =
               newColonExpr(ident "error", c[1][0][2])
             )
       else: error("Missing `options` for tSelect rule")
+  of tFile:
+    for c in node:
+      expectKind(c, nnkCall)
+      var filterVal = c[1]
+      var filterMsg: NimNode
+      if c[1][0].kind == nnkInfix:
+        expectIdent(c[1][0][0], "?")
+        expectKind(c[1][0][2], nnkStrLit)
+        filterVal = c[1][0][1]
+        filterMsg = c[1][0][2]
+      if filterMsg != nil:
+        add newRule, newColonExpr(c[0],
+          nnkTupleConstr.newTree(filterVal, filterMsg)
+        )
+      else:
+        add newRule, newColonExpr(c[0], filterVal)
   else:
     for c in node:
-      if eqIdent(c[0], "min") or eqIdent(c[0], "max"):
-        # Setup ranges (min/max)
-        expectKind(c[1][0], nnkInfix)
-        expectKind(c[1][0][0], nnkIdent)
-        newRule.add(
-          newColonExpr(c[0],
-            nnkObjConstr.newTree(
-              ident "MinMax",
-              newColonExpr(
-                ident "length",
-                c[1][0][1]
-              ),
-              newColonExpr(
-                ident "error",
-                c[1][0][2]
-              )
-            )
-          )
-        )
+      expectKind(c, nnkCommand)
+      # echo c.treeRepr
+      # if eqIdent(c[0], "min") or eqIdent(c[0], "max"):
+      #   # Setup ranges (min/max)
+      #   expectKind(c[1], nnkInfix)
+      #   expectKind(c[1][0], nnkIdent)
+      #   newRule.add(
+      #     newColonExpr(c[0],
+      #       nnkObjConstr.newTree(
+      #         ident "MinMax",
+      #         newColonExpr(
+      #           ident "length",
+      #           c[1][0][1]
+      #         ),
+      #         newColonExpr(
+      #           ident "error",
+      #           c[1][0][2]
+      #         )
+      #       )
+      #     )
+      #   )
 
 proc parseRule(rule: NimNode, isRequired = true): NimNode {.compileTime.} =
   var
     newRule = newTree(nnkObjConstr).add(ident "Rule")
     tfield: string
     id, ruleStmt: NimNode 
-  if rule.kind == nnkIdent:
+  if rule.kind == nnkCall:
     id = rule[0]
     ruleStmt = rule[1]
   elif rule.kind == nnkPrefix:
     id = rule[1]
     ruleStmt = rule[2]
+
+  # if ruleStmt[0].kind == nnkDo:
+  #   echo ruleStmt.treeRepr
+  # todo
+
   for r in ruleStmt:
-    if r.kind == nnkIdent:
-      newRule.add(
-        newColonExpr(ident "id", newLit id.strVal),
-        newColonExpr(ident "ftype", ident r.strVal),
-        newColonExpr(ident "required", newLit isRequired),
-      )
-    elif r.kind == nnkInfix:
-      let fieldType = r[1]
-      if fieldType.kind == nnkIdent:
-        tfield = fieldType.strVal
-      elif fieldType.kind == nnkCall:
-        tfield = fieldType[0].strVal
-      if r[0].kind == nnkIdent:
-        if r[0].strVal == "or":
-          expectKind r[2], nnkStrLit
-          newRule.add(
-            newColonExpr(ident "id", newLit id.strVal),
-            newColonExpr(ident "ftype", ident tfield),
-            newColonExpr(ident "required", newLit isRequired),
-            newColonExpr(ident "error", r[2])
-          )
-      if r.len == 4:
-        expectKind r[3], nnkStmtList
-        let parsedFieldType = parseEnum[TField](tfield)
-        handleFilters(r[3])
-    elif r.kind == nnkCall:
-      let fieldType = r[0]
-      if fieldType.kind == nnkIdent:
-        tfield = fieldType.strVal
-      elif fieldType.kind == nnkCall:
-        tfield = fieldType[0].strVal
-      let parsedFieldType = parseEnum[TField](tfield)
-      expectKind r[1], nnkStmtList
-      newRule.add(
-        newColonExpr(ident "id", newLit id.strVal),
-        newColonExpr(ident "ftype", r[0]),
-        newColonExpr(ident "required", newLit isRequired),
-      )
-      handleFilters(r[1])
+    r.expectKind nnkCallStrLit
+    let fieldType = r[0]
+    let msg = r[1]
+    let tField = parseEnum[TField]($fieldType)
+    newRule.add(
+      newColonExpr(ident"id", newLit $id),
+      newColonExpr(ident"ftype", ident $fieldType),
+      newColonExpr(ident"required", newLit isRequired),
+      newColonExpr(ident"error", msg)
+    )
+    if r.len == 3:
+      r[2].expectKind nnkStmtList
+      # echo r[2].treeRepr
+      handleFilters(r[2])
   result = newRule
 
-macro bag*(data: typed, rules: untyped, bodyFail: untyped = nil) =
-  ## Create a new input bag validation at compile time.
-  ##
-  ## `data` expects a `seq[tuple[k, v: string]]`
-  ## that represent submitted data from the current request.
-  ##
-  ## `rules` is used to define your rules at compile-time.
-  runnableExamples:
-    let data = [
-      ("email": "test@example.com"),
-      ("password", "123admin"),
-      ("remember", "on")
-    ]
-    bag data:
-      email: tEmail or "Invalid email address"
-      password: tPassword or "Invalid password"
-      *remember: tCheckbox  # optional field, default: off/false
-    do:
-      for err in inputBag.errors:
-        echo err
-
+template parseBagRules(bagType: NimNode) {.dirty.} =
   expectKind rules, nnkStmtList
-  result = newStmtList()
-  let varBagInstance = newVarStmt(
-    ident "inputBag",
-    newCall(ident "InputBag")
-  )
+  var blockStmt = newStmtList()
+  let varBagInstance =
+    newVarStmt(
+      ident"inputBag",
+      newCall(
+        ident"newInputBag",
+        bagType
+      )
+    )
   var rulesList = newStmtList()
   for r in rules:
     case r.kind
@@ -348,11 +407,80 @@ macro bag*(data: typed, rules: untyped, bodyFail: untyped = nil) =
           ident"addRule", ident"inputBag", node)
     else: discard # todo compile-time error
 
-  result.add varBagInstance
-  result.add rulesList
-  result.add quote do:
+  blockStmt.add varBagInstance
+  blockStmt.add rulesList
+
+macro bag*(data: typed, rules: untyped, bodyFail: untyped = nil) =
+  ## Create a new input bag validation at compile time.
+  ##
+  ## `data` expects a `seq[tuple[k, v: string]]`
+  ## that represent submitted data from the current request.
+  ##
+  ## `rules` is used to define your rules at compile-time.
+  runnableExamples:
+    let data = [
+      ("email": "test@example.com"),
+      ("password", "123admin"),
+      ("remember", "on")
+    ]
+    bag data:
+      email: tEmail"Invalid email address"
+      password: tPasswordStrength"Weak password"
+      *remember: tCheckbox  # optional field, default: off/false
+    do:
+      for err in inputBag.errors:
+        echo err
+  parseBagRules(ident"inputTypeUrlEncoded")
+  blockStmt.add quote do:
     inputBag.validate(`data`)
   if bodyFail != nil:
-    result.add quote do:
+    blockStmt.add quote do:
       if inputBag.isInvalid:
         `bodyFail`
+  result = nnkBlockStmt.newTree(newEmptyNode(), blockStmt)
+  when defined debugMacrosOpenPeepsBag:
+    debugEcho result.repr
+
+macro multipartBag*(data, contentType: typed,
+    rules: untyped,
+    # chunkUploads: static bool = false,
+    # chunkSize: static int = int(100^3),
+    bodySuccess, bodyFail: untyped = nil,
+  ) =
+  ## Create a bag from multipart body
+  ##
+  ## `data` must be a multipart body from a request
+  ## `contentType` the string version of `Content-Type` header
+  ## 
+  ## `rules` is used to define your rules at compile-time.
+  # runnableExamples:
+  #   let data = """
+  #    """
+  #   bag data:
+  #     email: tEmail"Invalid email address"
+  #     password: tPasswordStrength"Weak password"
+  #     *remember: tCheckbox  # optional field, default: off/false
+  #   do:
+  #     for err in inputBag.errors:
+  #       echo err
+  parseBagRules(ident"inputTypeMultipart")
+  blockStmt.add quote do:
+    inputBag.validateMultipart(`contentType`, `data`)
+  if bodySuccess != nil:
+    add blockStmt, quote do:
+      `bodySuccess`
+  if bodyFail != nil:
+    add blockStmt, quote do:
+      if inputBag.isInvalid:
+        `bodyFail`
+  result = nnkBlockStmt.newTree(newEmptyNode(), blockStmt)
+  when defined debugMacrosOpenPeepsBag:
+    debugEcho result.repr
+
+macro multipartChunkedBag*(data, contentType: typed,
+    rules: untyped, 
+    chunkSize: static int = int(100^3),
+    bodySuccess, bodyFail
+  )=
+  ## Create a bag from a chunked multipart body
+  discard
