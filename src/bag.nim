@@ -5,9 +5,9 @@
 #          https://github.com/openpeep/bag
 
 import std/[macros, tables, times,
-      strutils, json, math, streams]
+            strutils, json, math, streams]
 
-import pkg/[valido, multipart, chroma]
+import pkg/[valido, multipart]
 import pkg/filetype/image
 import pkg/filetype/audio
 
