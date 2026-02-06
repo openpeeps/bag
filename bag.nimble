@@ -11,6 +11,8 @@ srcDir        = "src"
 
 requires "nim >= 2.0.0"
 requires "valido#head"
+requires "multipart#head"
+requires "filetype"
 
 task dev, "dev":
   echo "\n✨ Compiling..." & "\n"

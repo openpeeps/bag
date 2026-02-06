@@ -85,6 +85,8 @@ type
     of tDate:
       formatDate*: string
       minDate*, maxDate*: tuple[isset: bool, error: string, date: DateTime]
+    of tNone:
+      callbackHandler*: proc(input: string): bool
     else: discard 
     error*: string
     min*, max*: MinMax
@@ -184,6 +186,13 @@ proc validate*(bag: InputBag, data: openarray[(string, string)]) =
         if not valido.isEmpty v:
           if not valido.isDomain(v): Fail
         elif rule.required: Fail
+      of tNone:
+        assert rule.callbackHandler != nil
+        if not rule.callbackHandler(v): Fail
+      of tColor:
+        if not valido.isEmpty v:
+          if not valido.isColor(v): Fail
+        elif rule.required: Fail
       else: discard # TODO add more filters
       bag.rules.del(k)
   for k, rule in pairs bag.rules:
@@ -201,7 +210,6 @@ proc validate*(bag: InputBag, jsonData: JsonNode) =
         add data, (k, v.getStr)
       else: return
     bag.validate(data)
-
 
 proc validateMultipart*(bag: InputBag, contentType,
     multipartBody: sink string
@@ -364,7 +372,7 @@ proc parseRule(rule: NimNode, isRequired = true): NimNode {.compileTime.} =
   # todo
 
   for r in ruleStmt:
-    r.expectKind nnkCallStrLit
+    expectKind(r, nnkCallStrLit)
     let fieldType = r[0]
     let msg = r[1]
     let tField = parseEnum[TField]($fieldType)
@@ -375,8 +383,7 @@ proc parseRule(rule: NimNode, isRequired = true): NimNode {.compileTime.} =
       newColonExpr(ident"error", msg)
     )
     if r.len == 3:
-      r[2].expectKind nnkStmtList
-      # echo r[2].treeRepr
+      expectKind(r[2], nnkStmtList)
       handleFilters(r[2])
   result = newRule
 
@@ -391,21 +398,46 @@ template parseBagRules(bagType: NimNode) {.dirty.} =
         bagType
       )
     )
-  var rulesList = newStmtList()
+  var
+    i = 0
+    rulesIndex = newTable[string, int]()
+    rulesList = newStmtList()
   for r in rules:
     case r.kind
     of nnkCall:
       # handle required fields
       let node = parseRule(r)
-      add rulesList, newCall(
-        ident"addRule", ident"inputBag", node)
+      add rulesList, newCall(ident"addRule", ident"inputBag", node)
+      rulesIndex[r[0].strVal] = i
     of nnkPrefix:
       # handle optional fields
       if r[0].eqIdent"*":
         let node = parseRule(r, false)
-        add rulesList, newCall(
-          ident"addRule", ident"inputBag", node)
+        add rulesList, newCall(ident"addRule", ident"inputBag", node)
+        rulesIndex[r[0].strVal] = i
+    of nnkInfix:
+      if r[0].eqIdent"->":
+        expectKind(r[1], nnkIdent)
+        expectKind(r[2], nnkIdent)
+        if (r[2].strVal == "callback" and r.len == 4) and(r[3].kind == nnkDo):
+          var newRule = newTree(nnkObjConstr).add(ident"Rule")
+          var ruleCallbackHandle = newProc(body = r[3][^1])
+          ruleCallbackHandle[3] = r[3][3] # copy return type and params
+          newRule.add(
+            newColonExpr(ident"id", newLit(r[1].strVal)),
+            newColonExpr(ident"ftype", ident"tNone"),
+            newColonExpr(ident"callbackHandler", ruleCallbackHandle)
+          )
+          rulesIndex[r[1].strVal] = i
+          add rulesList, newCall(ident"addRule", ident"inputBag", newRule)
+        else:
+          if rulesIndex.hasKey(r[2].strVal):
+            rulesIndex[r[1].strVal] = i
+            add rulesList, rulesList[rulesIndex[r[2].strVal]]
+          else:
+            error("Trying to reference a rule that does not exist: $1" % [r[2].strVal])
     else: discard # todo compile-time error
+    inc i
 
   blockStmt.add varBagInstance
   blockStmt.add rulesList
@@ -418,6 +450,8 @@ macro bag*(data: typed, rules: untyped, bodyFail: untyped = nil) =
   ##
   ## `rules` is used to define your rules at compile-time.
   runnableExamples:
+    # dummy data containing a seq/openArray 
+    # of tuples with key/value pairs
     let data = [
       ("email": "test@example.com"),
       ("password", "123admin"),
@@ -428,18 +462,26 @@ macro bag*(data: typed, rules: untyped, bodyFail: untyped = nil) =
       password: tPasswordStrength"Weak password"
       *remember: tCheckbox  # optional field, default: off/false
     do:
-      for err in inputBag.errors:
+      for err in inputBag.getErrors:
         echo err
   parseBagRules(ident"inputTypeUrlEncoded")
+
   blockStmt.add quote do:
     inputBag.validate(`data`)
   if bodyFail != nil:
     blockStmt.add quote do:
+      # let inputData = `data.`
       if inputBag.isInvalid:
         `bodyFail`
+
   result = nnkBlockStmt.newTree(newEmptyNode(), blockStmt)
   when defined debugMacrosOpenPeepsBag:
     debugEcho result.repr
+
+template withValidator*(x: typed, r: untyped, b: untyped = nil) =
+  ## Create a new input bag validation at compile time.
+  ## This is an alias for `bag` macro.
+  bag(x, r, b)
 
 macro multipartBag*(data, contentType: typed,
     rules: untyped,
@@ -461,7 +503,7 @@ macro multipartBag*(data, contentType: typed,
   #     password: tPasswordStrength"Weak password"
   #     *remember: tCheckbox  # optional field, default: off/false
   #   do:
-  #     for err in inputBag.errors:
+  #     for err in inputBag.getErrors:
   #       echo err
   parseBagRules(ident"inputTypeMultipart")
   blockStmt.add quote do:
