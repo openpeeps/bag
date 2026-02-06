@@ -13,7 +13,7 @@
 </p>
 
 ## 😍 Key Features
-- [x] Macro-based validation
+- [x] Macro-based webform validation
 - [x] Framework agnostic
 - [x] i18n support
 - [x] Based on [Valido package](https://github.com/openpeeps/valido)
@@ -25,13 +25,11 @@
 ```nim
 # can be a seq/array containing a key/value tuple (string, string)
 var data = [("email", "test@example.com"), ("password", "123admin")]
-
 # create a new bag
 bag data:
-  email: tEmail or "auth.error.email"
-  password: tPassword or "auth.error.password":
-    min: 8 or "auth.error.password.min"
-  *remember: tCheckbox  # `*` prefix makes field optional
+  email: tEmail"auth.error.email"
+  *password: tPasswordStrength"account.password.weak"
+    # optional field, if filled checks the password strenth
 do:
   for err in inputBag.getErrors:
     echo err
