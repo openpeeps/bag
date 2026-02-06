@@ -7,7 +7,7 @@
 import std/[macros, tables, times,
       strutils, json, math, streams]
 
-import pkg/[valido, multipart]
+import pkg/[valido, multipart, chroma]
 import pkg/filetype/image
 import pkg/filetype/audio
 
@@ -126,7 +126,7 @@ template Fail() =
 template Fail(error: string, altError = "") =
   add bag.failed, (rule.id, if error.len == 0: altError else: error)
 
-template minMaxCheck() =
+template minMaxCheck() {.dirty.} =
   if rule.min != nil:
     if not valido.isMin(f[1], rule.min.length):
       Fail rule.min.error
@@ -170,7 +170,7 @@ proc validate*(bag: InputBag, data: openarray[(string, string)]) =
         elif rule.required: Fail
       of tText, tTextarea, tPassword:
         if not valido.isEmpty v:
-          minMaxCheck
+          minMaxCheck()
         elif rule.required: Fail
       of tSelect:
         if not valido.isEmpty v:

@@ -13,6 +13,7 @@ requires "nim >= 2.0.0"
 requires "valido#head"
 requires "multipart#head"
 requires "filetype"
+requires "chroma"
 
 task dev, "dev":
   echo "\n✨ Compiling..." & "\n"
