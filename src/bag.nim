@@ -5,11 +5,9 @@
 #          https://github.com/openpeep/bag
 
 import std/[macros, tables, times,
-            strutils, json, math, streams]
+            strutils, json, math]
 
-import pkg/[valido, multipart]
-import pkg/filetype/image
-import pkg/filetype/audio
+import pkg/[valido, multipart, openparser/regex]
 
 type
   TField* = enum
@@ -82,7 +80,7 @@ type
       minFileSize*, maxFileSize*: uint
         ## The min/max file size allowed in megabytes.
         ## Where `0` means unmetered size
-    of tDate:
+    of tDate, tMonth, tTime, tWeek:
       formatDate*: string
       minDate*, maxDate*: tuple[isset: bool, error: string, date: DateTime]
     of tNone:
@@ -146,12 +144,14 @@ proc validate*(bag: InputBag, data: openarray[(string, string)]) =
       of tEmail:
         if not valido.isEmpty v:
           if not valido.isEmail v: Fail
+          else: minMaxCheck()
         elif rule.required: Fail
       of tPasswordStrength:
         if not valido.isEmpty v:
           if not valido.isStrongPassword v: Fail
-        elif rule.required: Fail         
-      of tCheckbox:
+          else: minMaxCheck()
+        elif rule.required: Fail
+      of tCheckbox, tRadio:
         if not valido.isEmpty v:
           if v notin ["0", "1", "off", "on", "false", "true", "unchecked", "checked"]: Fail
         elif rule.required: Fail
@@ -159,16 +159,16 @@ proc validate*(bag: InputBag, data: openarray[(string, string)]) =
         if not valido.isEmpty v:
           try:
             let inputDate = times.parse(v, rule.formatDate)
-            if rule.minDate.isset:  # set a min date
+            if rule.minDate.isset:
               if inputDate >= rule.minDate.date == false:
                 Fail rule.minDate.error, rule.error
-            if rule.maxDate.isset:  # set a max date
+            if rule.maxDate.isset:
               if inputDate <= rule.maxDate.date == false:
                 Fail rule.maxDate.error, rule.error
           except TimeParseError, TimeFormatParseError:
             Fail
         elif rule.required: Fail
-      of tText, tTextarea, tPassword:
+      of tText, tTextarea, tPassword, tHidden, tSearch, tTel:
         if not valido.isEmpty v:
           minMaxCheck()
         elif rule.required: Fail
@@ -177,15 +177,7 @@ proc validate*(bag: InputBag, data: openarray[(string, string)]) =
           if v notin rule.selectOptions: Fail
         elif rule.required: Fail
       of tFile:
-        # echo v
-        # if not valido.isEmpty v:
-          # echo v
-        # elif rule.required: Fail
         discard
-      of tDomain:
-        if not valido.isEmpty v:
-          if not valido.isDomain(v): Fail
-        elif rule.required: Fail
       of tNone:
         assert rule.callbackHandler != nil
         if not rule.callbackHandler(v): Fail
@@ -193,7 +185,158 @@ proc validate*(bag: InputBag, data: openarray[(string, string)]) =
         if not valido.isEmpty v:
           if not valido.isColor(v): Fail
         elif rule.required: Fail
-      else: discard # TODO add more filters
+      of tDomain:
+        if not valido.isEmpty v:
+          if not valido.isDomain(v): Fail
+          else: minMaxCheck()
+        elif rule.required: Fail
+      of tBase32:
+        if not valido.isEmpty v:
+          if not valido.isBase32(v): Fail
+          else: minMaxCheck()
+        elif rule.required: Fail
+      of tBase58:
+        if not valido.isEmpty v:
+          if not valido.isBase58(v): Fail
+          else: minMaxCheck()
+        elif rule.required: Fail
+      of tBase64:
+        if not valido.isEmpty v:
+          if not valido.isBase64(v): Fail
+          else: minMaxCheck()
+        elif rule.required: Fail
+      of tCard:
+        if not valido.isEmpty v:
+          if not valido.isCard(v): Fail
+          else: minMaxCheck()
+        elif rule.required: Fail
+      of tEAN:
+        if not valido.isEmpty v:
+          if not valido.isEAN(v).status: Fail
+        elif rule.required: Fail
+      of tIP:
+        if not valido.isEmpty v:
+          if not (valido.isIP4(v) or valido.isIP6(v)): Fail
+          else: minMaxCheck()
+        elif rule.required: Fail
+      of tJSON:
+        if not valido.isEmpty v:
+          if not valido.isJSON(v): Fail
+          else: minMaxCheck()
+        elif rule.required: Fail
+      of tMD5:
+        if not valido.isEmpty v:
+          if not valido.isMD5(v): Fail
+          else: minMaxCheck()
+        elif rule.required: Fail
+      of tPort:
+        if not valido.isEmpty v:
+          if not valido.isPort(v): Fail
+          else: minMaxCheck()
+        elif rule.required: Fail
+      of tAlpha:
+        if not valido.isEmpty v:
+          if not valido.isAlpha(v): Fail
+          else: minMaxCheck()
+        elif rule.required: Fail
+      of tAlphanumeric:
+        if not valido.isEmpty v:
+          if not valido.isAlphaNumeric(v): Fail
+          else: minMaxCheck()
+        elif rule.required: Fail
+      of tUppercase:
+        if not valido.isEmpty v:
+          if not valido.isUppercase(v): Fail
+          else: minMaxCheck()
+        elif rule.required: Fail
+      of tLowercase:
+        if not valido.isEmpty v:
+          if not valido.isLowercase(v): Fail
+          else: minMaxCheck()
+        elif rule.required: Fail
+      of tBool:
+        if not valido.isEmpty v:
+          if not valido.isBoolean(v): Fail
+        elif rule.required: Fail
+      of tFloat:
+        if not valido.isEmpty v:
+          if not valido.isFloat(v): Fail
+          else: minMaxCheck()
+        elif rule.required: Fail
+      of tHex:
+        if not valido.isEmpty v:
+          if not valido.isHexStr(v): Fail
+          else: minMaxCheck()
+        elif rule.required: Fail
+      of tUUID:
+        if not valido.isEmpty v:
+          if not valido.isUUID(v): Fail
+          else: minMaxCheck()
+        elif rule.required: Fail
+      of tNumber, tRange:
+        if not valido.isEmpty v:
+          if not valido.isInt(v): Fail
+          else: minMaxCheck()
+        elif rule.required: Fail
+      of tURL:
+        if not valido.isEmpty v:
+          if "://" notin v: Fail
+          else:
+            let parts = v.split("://")
+            if parts[0].len == 0 or parts[^1].len == 0: Fail
+            else: minMaxCheck()
+        elif rule.required: Fail
+      of tDatalist:
+        if not valido.isEmpty v:
+          minMaxCheck()
+        elif rule.required: Fail
+      of tMonth:
+        if not valido.isEmpty v:
+          if v.len != 7 or v[4] != '-': Fail
+          else:
+            try:
+              let m = parseInt(v[5..6])
+              if m < 1 or m > 12: Fail
+            except ValueError: Fail
+        elif rule.required: Fail
+      of tTime:
+        if not valido.isEmpty v:
+          let parts = v.split(':')
+          if parts.len notin [2, 3]: Fail
+          else:
+            try:
+              let h = parseInt(parts[0])
+              let m = parseInt(parts[1])
+              if h < 0 or h > 23 or m < 0 or m > 59: Fail
+              elif parts.len == 3:
+                let s = parseInt(parts[2])
+                if s < 0 or s > 59: Fail
+            except ValueError: Fail
+        elif rule.required: Fail
+      of tWeek:
+        if not valido.isEmpty v:
+          if v.len != 8 or v[4] != '-' or v[5] != 'W': Fail
+          else:
+            try:
+              let w = parseInt(v[6..7])
+              if w < 1 or w > 53: Fail
+            except ValueError: Fail
+        elif rule.required: Fail
+      of tCountry, tCountryState, tCountryCapital, tCurrency:
+        if not valido.isEmpty v:
+          minMaxCheck()
+        elif rule.required: Fail
+      of tRegex:
+        if not valido.isEmpty v:
+          try:
+            discard regex.compile(v)
+            minMaxCheck()
+          except: Fail
+        elif rule.required: Fail
+      of tCSRF:
+        if not valido.isEmpty v:
+          minMaxCheck()
+        elif rule.required: Fail
       bag.rules.del(k)
   for k, rule in pairs bag.rules:
     if rule.required:
@@ -222,17 +365,6 @@ proc validateMultipart*(bag: InputBag, contentType,
   ## 
   ## In this case, the multipart parser will parsing
   ## if the extracted signature is not in `allowFileTypes` sequence.
-  var magicSignature: seq[byte]
-  var fileCallback =
-    proc(boundary: ptr Boundary, pos: int, c: ptr char): bool =
-      if pos <= 4:
-        add magicSignature, c[].byte
-        return true
-      # else:
-        # echo magicSignature
-        # echo magicSignature.isOgg
-      result = true
-
   var mp = initMultipart(contentType)
   mp.parse(multipartBody)
   for boundary in mp:
@@ -246,73 +378,48 @@ proc validateMultipart*(bag: InputBag, contentType,
 #
 template handleFilters(node: NimNode) =
   case tField:
-  of tDate:
+  of tDate, tMonth, tTime, tWeek:
     for c in node:
       let fieldStr = c[0].strVal
       if fieldStr notin ["min", "max"]:
         error("Unrecognized field $1 for $2" % [fieldStr, $tfield])
-      let dateFormat = fieldType[1]
+      let dateFormat = msg
       if c[1][0].kind == nnkInfix:
-        expectKind c[1][0][2], nnkStrLit # error message
+        expectKind c[1][0][2], nnkStrLit
         var dateTuple = nnkTupleConstr.newTree()
         dateTuple.add(
-          newLit true,  # set isset status
-          c[1][0][2],   # set error message
-          newCall(
-            ident "parse",
-            c[1][0][1],
-            dateFormat
-          )
+          newLit true,
+          c[1][0][2],
+          newCall(ident "parse", c[1][0][1], dateFormat)
         )
         newRule.add(
-          newColonExpr(
-            ident(fieldStr & "Date"),
-            dateTuple
-          )
+          newColonExpr(ident(fieldStr & "Date"), dateTuple)
         )
-      elif c[1][0].kind == nnKStrLit:
+      elif c[1][0].kind == nnkStrLit:
         var dateTuple = nnkTupleConstr.newTree()
         dateTuple.add(
-          newLit true,  # set isset status
-          newLit "",    # no error message
-          newCall(
-            ident "parse",
-            c[1][0],
-            dateFormat
-          )
+          newLit true,
+          newLit "",
+          newCall(ident "parse", c[1][0], dateFormat)
         )
         newRule.add(
-          newColonExpr(
-            ident(fieldStr & "Date"),
-            dateTuple
-          )
+          newColonExpr(ident(fieldStr & "Date"), dateTuple)
         )
-    newRule.add(
-      newColonExpr(
-        ident "formatDate",
-        fieldType[1]
-      )
-    )
   of tSelect:
     for c in node:
       if eqIdent(c[0], "options"):
         expectKind c[1], nnkStmtList
         if c[1][0].kind == nnkInfix:
-          expectKind c[1][0][2], nnkStrLit # error message
           if c[1][0][1].kind == nnkPrefix:
-            # handle options in a sequence
             newRule.add(
-              newColonExpr(ident "selectOptions", c[1][0][1]),
-              newColonExpr(ident "error", c[1][0][2])
+              newColonExpr(ident "selectOptions", c[1][0][1])
             )
           elif c[1][0][1].kind == nnkBracket:
-            # handle options in array
             newRule.add(
               newColonExpr(
                 ident "selectOptions",
                 nnkPrefix.newTree(ident "@", c[1][0][1])
-              ),
-              newColonExpr(ident "error", c[1][0][2])
+              )
             )
       else: error("Missing `options` for tSelect rule")
   of tFile:
@@ -333,32 +440,22 @@ template handleFilters(node: NimNode) =
         add newRule, newColonExpr(c[0], filterVal)
   else:
     for c in node:
-      expectKind(c, nnkCommand)
-      # echo c.treeRepr
-      # if eqIdent(c[0], "min") or eqIdent(c[0], "max"):
-      #   # Setup ranges (min/max)
-      #   expectKind(c[1], nnkInfix)
-      #   expectKind(c[1][0], nnkIdent)
-      #   newRule.add(
-      #     newColonExpr(c[0],
-      #       nnkObjConstr.newTree(
-      #         ident "MinMax",
-      #         newColonExpr(
-      #           ident "length",
-      #           c[1][0][1]
-      #         ),
-      #         newColonExpr(
-      #           ident "error",
-      #           c[1][0][2]
-      #         )
-      #       )
-      #     )
-      #   )
+      if eqIdent(c[0], "min") or eqIdent(c[0], "max"):
+        let expr = if c[1].kind == nnkStmtList: c[1][0] else: c[1]
+        expectKind(expr, nnkInfix)
+        newRule.add(
+          newColonExpr(c[0],
+            nnkObjConstr.newTree(
+              ident "MinMax",
+              newColonExpr(ident "length", expr[1]),
+              newColonExpr(ident "error", expr[2])
+            )
+          )
+        )
 
 proc parseRule(rule: NimNode, isRequired = true): NimNode {.compileTime.} =
   var
     newRule = newTree(nnkObjConstr).add(ident "Rule")
-    tfield: string
     id, ruleStmt: NimNode 
   if rule.kind == nnkCall:
     id = rule[0]
@@ -371,20 +468,27 @@ proc parseRule(rule: NimNode, isRequired = true): NimNode {.compileTime.} =
   #   echo ruleStmt.treeRepr
   # todo
 
-  for r in ruleStmt:
-    expectKind(r, nnkCallStrLit)
-    let fieldType = r[0]
-    let msg = r[1]
-    let tField = parseEnum[TField]($fieldType)
-    newRule.add(
-      newColonExpr(ident"id", newLit $id),
-      newColonExpr(ident"ftype", ident $fieldType),
-      newColonExpr(ident"required", newLit isRequired),
-      newColonExpr(ident"error", msg)
-    )
-    if r.len == 3:
-      expectKind(r[2], nnkStmtList)
-      handleFilters(r[2])
+  let callNode = if ruleStmt.kind == nnkStmtList: ruleStmt[0] else: ruleStmt
+  let (fieldType, msg, filterBody) =
+    if callNode.kind == nnkIdent:
+      (callNode, newLit(""), nil)
+    elif callNode.kind in {nnkCallStrLit, nnkCall}:
+      (callNode[0], callNode[1],
+       if callNode.len == 3: callNode[2] else: nil)
+    else:
+      error("Unexpected field definition: " & $callNode.kind)
+  let tField = parseEnum[TField]($fieldType)
+  newRule.add(
+    newColonExpr(ident"id", newLit $id),
+    newColonExpr(ident"ftype", ident $fieldType),
+    newColonExpr(ident"required", newLit isRequired),
+    newColonExpr(ident"error", msg)
+  )
+  if filterBody != nil:
+    expectKind(filterBody, nnkStmtList)
+    handleFilters(filterBody)
+  elif tField in {tDate, tMonth, tTime, tWeek}:
+    newRule.add(newColonExpr(ident "formatDate", msg))
   result = newRule
 
 template parseBagRules(bagType: NimNode) {.dirty.} =
@@ -442,7 +546,7 @@ template parseBagRules(bagType: NimNode) {.dirty.} =
   blockStmt.add varBagInstance
   blockStmt.add rulesList
 
-macro bag*(data: typed, rules: untyped, bodyFail: untyped = nil) =
+macro withBag*(data: typed, rules: untyped, bodyFail: untyped = nil) =
   ## Create a new input bag validation at compile time.
   ##
   ## `data` expects a `seq[tuple[k, v: string]]`
@@ -457,7 +561,7 @@ macro bag*(data: typed, rules: untyped, bodyFail: untyped = nil) =
       ("password", "123admin"),
       ("remember", "on")
     ]
-    bag data:
+    withBag data:
       email: tEmail"Invalid email address"
       password: tPasswordStrength"Weak password"
       *remember: tCheckbox  # optional field, default: off/false

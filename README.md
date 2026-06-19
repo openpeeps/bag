@@ -23,25 +23,33 @@
 ## Examples
 
 ```nim
-# can be a seq/array containing a key/value tuple (string, string)
-var data = [("email", "test@example.com"), ("password", "123admin")]
-# create a new bag
-bag data:
+let data = @[
+  ("email", "test@example.com"),
+  ("password", "abc"),
+  ("message", "Hello world")
+]
+
+withBag data:
   email: tEmail"auth.error.email"
-  *password: tPasswordStrength"account.password.weak"
-    # optional field, if filled checks the password strenth
+  password: tPasswordStrength"weak.password"
+  message: tTextarea"msg.empty":
+    min: 10 or "msg.too.short"
+    max: 500 or "msg.too.long"
+  *remember: tCheckbox       # optional, default false
+  csrf -> callback do(input: string) -> bool:
+    result = validateToken("/auth/login", input)
 do:
-  for err in inputBag.getErrors:
-    echo err
+  if inputBag.isInvalid:
+    for (field, err) in inputBag.getErrors:
+      echo field, ": ", i18n(err)
 ```
 
-For more examples, check in [unittests](https://github.com/openpeeps/bag/blob/main/tests/test1.nim)
+See the [full test suite](https://github.com/openpeeps/bag/blob/main/tests/test1.nim) for all 30+ supported field types.
 
 ### ❤ Contributions & Support
 - 🐛 Found a bug? [Create a new Issue](https://github.com/openpeeps/bag/issues)
 - 👋 Wanna help? [Fork it!](https://github.com/openpeeps/bag/fork)
-- 😎 [Get €20 in cloud credits from Hetzner](https://hetzner.cloud/?ref=Hm0mYGM9NxZ4)
 
 ### 🎩 License
 Bag | MIT license. [Made by Humans from OpenPeeps](https://github.com/openpeeps).<br>
-Copyright &copy; 2025 OpenPeeps & Contributors &mdash; All rights reserved.
+Copyright &copy; OpenPeeps & Contributors &mdash; All rights reserved.
