@@ -644,21 +644,6 @@ macro withBag*(data: typed, rules: untyped, bodyFail: untyped = nil) =
   ## that represent submitted data from the current request.
   ##
   ## `rules` is used to define your rules at compile-time.
-  runnableExamples:
-    # dummy data containing a seq/openArray 
-    # of tuples with key/value pairs
-    let data = [
-      ("email": "test@example.com"),
-      ("password", "123admin"),
-      ("remember", "on")
-    ]
-    withBag data:
-      email: tEmail"Invalid email address"
-      password: tPasswordStrength"Weak password"
-      *remember: tCheckbox  # optional field, default: off/false
-    do:
-      for err in inputBag.getErrors:
-        echo err
   parseBagRules(ident"inputTypeUrlEncoded")
 
   blockStmt.add quote do:
