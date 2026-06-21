@@ -1,0 +1,72 @@
+nimTitle	bag	bag.html	module bag		0
+nim	tNone	bag.html#tNone	TField.tNone		13
+nim	tCheckbox	bag.html#tCheckbox	TField.tCheckbox		13
+nim	tColor	bag.html#tColor	TField.tColor		13
+nim	tDate	bag.html#tDate	TField.tDate		13
+nim	tDatalist	bag.html#tDatalist	TField.tDatalist		13
+nim	tEmail	bag.html#tEmail	TField.tEmail		13
+nim	tFile	bag.html#tFile	TField.tFile		13
+nim	tHidden	bag.html#tHidden	TField.tHidden		13
+nim	tMonth	bag.html#tMonth	TField.tMonth		13
+nim	tNumber	bag.html#tNumber	TField.tNumber		13
+nim	tPassword	bag.html#tPassword	TField.tPassword		13
+nim	tTextarea	bag.html#tTextarea	TField.tTextarea		13
+nim	tRadio	bag.html#tRadio	TField.tRadio		13
+nim	tRange	bag.html#tRange	TField.tRange		13
+nim	tSelect	bag.html#tSelect	TField.tSelect		13
+nim	tSearch	bag.html#tSearch	TField.tSearch		13
+nim	tTel	bag.html#tTel	TField.tTel		13
+nim	tText	bag.html#tText	TField.tText		13
+nim	tTime	bag.html#tTime	TField.tTime		13
+nim	tUrl	bag.html#tUrl	TField.tUrl		13
+nim	tWeek	bag.html#tWeek	TField.tWeek		13
+nim	tBase32	bag.html#tBase32	TField.tBase32		13
+nim	tBase58	bag.html#tBase58	TField.tBase58		13
+nim	tBase64	bag.html#tBase64	TField.tBase64		13
+nim	tCard	bag.html#tCard	TField.tCard		13
+nim	tCountry	bag.html#tCountry	TField.tCountry		13
+nim	tCountryState	bag.html#tCountryState	TField.tCountryState		13
+nim	tCountryCapital	bag.html#tCountryCapital	TField.tCountryCapital		13
+nim	tCurrency	bag.html#tCurrency	TField.tCurrency		13
+nim	tEAN	bag.html#tEAN	TField.tEAN		13
+nim	tIP	bag.html#tIP	TField.tIP		13
+nim	tJSON	bag.html#tJSON	TField.tJSON		13
+nim	tMD5	bag.html#tMD5	TField.tMD5		13
+nim	tPort	bag.html#tPort	TField.tPort		13
+nim	tPasswordStrength	bag.html#tPasswordStrength	TField.tPasswordStrength		13
+nim	tAlpha	bag.html#tAlpha	TField.tAlpha		13
+nim	tAlphanumeric	bag.html#tAlphanumeric	TField.tAlphanumeric		13
+nim	tUppercase	bag.html#tUppercase	TField.tUppercase		13
+nim	tLowercase	bag.html#tLowercase	TField.tLowercase		13
+nim	tBool	bag.html#tBool	TField.tBool		13
+nim	tFloat	bag.html#tFloat	TField.tFloat		13
+nim	tHex	bag.html#tHex	TField.tHex		13
+nim	tRegex	bag.html#tRegex	TField.tRegex		13
+nim	tUUID	bag.html#tUUID	TField.tUUID		13
+nim	tCSRF	bag.html#tCSRF	TField.tCSRF		13
+nim	tDomain	bag.html#tDomain	TField.tDomain		13
+nim	TField	bag.html#TField	enum TField		13
+nim	MinMax	bag.html#MinMax	type MinMax		62
+nim	Rule	bag.html#Rule	object Rule		66
+nim	Rules	bag.html#Rules	type Rules		92
+nim	inputTypeUrlEncoded	bag.html#inputTypeUrlEncoded	InputBagType.inputTypeUrlEncoded		94
+nim	inputTypeMultipart	bag.html#inputTypeMultipart	InputBagType.inputTypeMultipart		94
+nim	InputBagType	bag.html#InputBagType	enum InputBagType		94
+nim	InputBag	bag.html#InputBag	type InputBag		98
+nim	newInputBag	bag.html#newInputBag,InputBagType	proc newInputBag(bagType: InputBagType): InputBag		106
+nim	isValid	bag.html#isValid,InputBag	proc isValid(bag: InputBag): bool		109
+nim	isInvalid	bag.html#isInvalid,InputBag	proc isInvalid(bag: InputBag): bool		112
+nim	getErrors	bag.html#getErrors,InputBag	proc getErrors(bag: InputBag): seq[(string, string)]		115
+nim	addRule	bag.html#addRule,InputBag,Rule	proc addRule(bag: InputBag; rule: Rule)		118
+nim	validate	bag.html#validate,InputBag,openArray[]	proc validate(bag: InputBag; data: openArray[(string, string)])		135
+nim	validate	bag.html#validate,InputBag,JsonNode	proc validate(bag: InputBag; jsonData: JsonNode)		346
+nim	validateMultipart	bag.html#validateMultipart,InputBag,sinkstring,sinkstring	proc validateMultipart(bag: InputBag; contentType, multipartBody: sink string)		357
+nim	validateMultipart	bag.html#validateMultipart,InputBag,string,sinkseq[byte]	proc validateMultipart(bag: InputBag; contentType: string;\n                  multipartBody: sink seq[byte])		406
+nim	validateMultipart	bag.html#validateMultipart,InputBag,string,ptr.UncheckedArray[byte],int	proc validateMultipart(bag: InputBag; contentType: string;\n                  data: ptr UncheckedArray[byte]; dataLen: int)		414
+nim	validateMultipartStreamed	bag.html#validateMultipartStreamed,InputBag,string,proc(MultipartStreamer)	proc validateMultipartStreamed(bag: InputBag; contentType: string; feeder: proc (\n    ms: var MultipartStreamer): bool {.closure.})		422
+nim	withBag	bag.html#withBag.m,typed,untyped,untyped	macro withBag(data: typed; rules: untyped; bodyFail: untyped = nil)		640
+nim	withValidator	bag.html#withValidator.t,typed,untyped,untyped	template withValidator(x: typed; r: untyped; b: untyped = nil)		661
+nim	multipartBag	bag.html#multipartBag.m,typed,typed,untyped,untyped,untyped	macro multipartBag(data, contentType: typed; rules: untyped;\n             bodySuccess, bodyFail: untyped = nil)		666
+nim	multipartStreamedBag	bag.html#multipartStreamedBag.m,typed,typed,untyped,untyped	macro multipartStreamedBag(feeder, contentType: typed; rules: untyped;\n                     bodyFail: untyped = nil)		702
+nimgrp	validatemultipart	bag.html#validateMultipart-procs-all	proc		357
+nimgrp	validate	bag.html#validate-procs-all	proc		135
