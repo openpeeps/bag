@@ -7,7 +7,7 @@
 import std/[macros, tables, times,
             strutils, json, math]
 
-import pkg/[valido, multipart, openparser/regex]
+import pkg/[valido, multipart, openparser/regex, filetype]
 
 type
   TField* = enum
@@ -357,21 +357,114 @@ proc validate*(bag: InputBag, jsonData: JsonNode) =
 proc validateMultipart*(bag: InputBag, contentType,
     multipartBody: sink string
 ) =
-  ## Validates a multipart body using `pkg/multipart`.
-  ## 
-  ## Thanks to `pkg/filetypes`, the `multipart` parser can
-  ## validate the type based on magic numbers
-  ## signature while writing file contents to a temporary path.
-  ## 
-  ## In this case, the multipart parser will parsing
-  ## if the extracted signature is not in `allowFileTypes` sequence.
+  var textFields: seq[(string, string)]
+  var fileCounts: Table[string, uint]
+
+  var fileSigCallback: MultipartFileCallbackSignature =
+    proc(boundary: ptr Boundary, pos: int, c: ptr char): MultipartFileSigantureState =
+      if pos < 32:
+        return stateMoreMagic
+      stateValidMagic
+
   var mp = initMultipart(contentType)
+  mp.fileSignatureCallback = fileSigCallback
   mp.parse(multipartBody)
+
   for boundary in mp:
-    if boundary.dataType == MultipartFile:
-      echo boundary.getPath
-    else:
-      echo boundary.value
+    if boundary.dataType == MultipartText:
+      textFields.add (boundary.fieldName, boundary.value)
+    elif boundary.dataType == MultipartFile and bag.rules.hasKey(boundary.fieldName):
+      let rule = bag.rules[boundary.fieldName]
+      if rule.ftype == tFile:
+        if not rule.allowMultiple and fileCounts.getOrDefault(boundary.fieldName, 0'u) > 0'u:
+          add bag.failed, (rule.id, rule.error)
+        else:
+          discard fileCounts.mgetOrPut(boundary.fieldName, 0'u)
+          inc fileCounts[boundary.fieldName]
+
+          if rule.maxFiles[0] > 0 and fileCounts[boundary.fieldName] > rule.maxFiles[0]:
+            add bag.failed, (rule.id, rule.maxFiles[1])
+          elif rule.minFileSize > 0 and boundary.fileSize < (rule.minFileSize * 1_000_000).int64:
+            add bag.failed, (rule.id, rule.error)
+          elif rule.maxFileSize > 0 and boundary.fileSize > (rule.maxFileSize * 1_000_000).int64:
+            add bag.failed, (rule.id, rule.error)
+          elif rule.allowFileTypes[0].len > 0:
+            let detected = filetype.match(boundary.magicNumbers)
+            var allowed = false
+            for mt in rule.allowFileTypes[0]:
+              if detected.mime.value == mt:
+                allowed = true
+                break
+            if not allowed:
+              add bag.failed, (rule.id, rule.allowFileTypes[1])
+      bag.rules.del(boundary.fieldName)
+
+  mp.cleanup()
+  if textFields.len > 0:
+    bag.validate(textFields)
+
+proc validateMultipart*(bag: InputBag, contentType: string,
+    multipartBody: sink seq[byte]
+) =
+  var bodyStr = newString(multipartBody.len)
+  if multipartBody.len > 0:
+    copyMem(addr bodyStr[0], addr multipartBody[0], multipartBody.len)
+  bag.validateMultipart(contentType, bodyStr)
+
+proc validateMultipart*(bag: InputBag, contentType: string,
+    data: ptr UncheckedArray[byte], dataLen: int
+) =
+  var bodyStr = newString(dataLen)
+  if dataLen > 0:
+    copyMem(addr bodyStr[0], data, dataLen)
+  bag.validateMultipart(contentType, bodyStr)
+
+proc validateMultipartStreamed*(bag: InputBag, contentType: string,
+    feeder: proc(ms: var MultipartStreamer): bool {.closure.}
+) =
+  var textFields: seq[(string, string)]
+  var fileCounts: Table[string, uint]
+  var fileSigCallback: MultipartFileCallbackSignature =
+    proc(boundary: ptr Boundary, pos: int, c: ptr char): MultipartFileSigantureState =
+      if pos < 32: return stateMoreMagic
+      stateValidMagic
+
+  var ms = newMultipartStreamer(contentType,
+    fileSignatureCallback = fileSigCallback)
+  while feeder(ms):
+    discard
+
+  for boundary in ms:
+    if boundary.dataType == MultipartText:
+      textFields.add (boundary.fieldName, boundary.value)
+    elif boundary.dataType == MultipartFile and bag.rules.hasKey(boundary.fieldName):
+      let rule = bag.rules[boundary.fieldName]
+      if rule.ftype == tFile:
+        if not rule.allowMultiple and fileCounts.getOrDefault(boundary.fieldName, 0'u) > 0'u:
+          add bag.failed, (rule.id, rule.error)
+        else:
+          discard fileCounts.mgetOrPut(boundary.fieldName, 0'u)
+          inc fileCounts[boundary.fieldName]
+          if rule.maxFiles[0] > 0 and fileCounts[boundary.fieldName] > rule.maxFiles[0]:
+            add bag.failed, (rule.id, rule.maxFiles[1])
+          elif rule.minFileSize > 0 and boundary.fileSize < (rule.minFileSize * 1_000_000).int64:
+            add bag.failed, (rule.id, rule.error)
+          elif rule.maxFileSize > 0 and boundary.fileSize > (rule.maxFileSize * 1_000_000).int64:
+            add bag.failed, (rule.id, rule.error)
+          elif rule.allowFileTypes[0].len > 0:
+            let detected = filetype.match(boundary.magicNumbers)
+            var allowed = false
+            for mt in rule.allowFileTypes[0]:
+              if detected.mime.value == mt:
+                allowed = true
+                break
+            if not allowed:
+              add bag.failed, (rule.id, rule.allowFileTypes[1])
+      bag.rules.del(boundary.fieldName)
+
+  ms.cleanup()
+  if textFields.len > 0:
+    bag.validate(textFields)
 
 #
 # Compile time API
@@ -424,14 +517,12 @@ template handleFilters(node: NimNode) =
       else: error("Missing `options` for tSelect rule")
   of tFile:
     for c in node:
-      expectKind(c, nnkCall)
-      var filterVal = c[1]
+      let expr = if c[1].kind == nnkStmtList: c[1][0] else: c[1]
+      var filterVal = expr
       var filterMsg: NimNode
-      if c[1][0].kind == nnkInfix:
-        expectIdent(c[1][0][0], "?")
-        expectKind(c[1][0][2], nnkStrLit)
-        filterVal = c[1][0][1]
-        filterMsg = c[1][0][2]
+      if expr.kind == nnkInfix:
+        filterVal = expr[1]
+        filterMsg = expr[2]
       if filterMsg != nil:
         add newRule, newColonExpr(c[0],
           nnkTupleConstr.newTree(filterVal, filterMsg)
@@ -623,10 +714,20 @@ macro multipartBag*(data, contentType: typed,
   when defined debugMacrosOpenPeepsBag:
     debugEcho result.repr
 
-macro multipartChunkedBag*(data, contentType: typed,
-    rules: untyped, 
-    chunkSize: static int = int(100^3),
-    bodySuccess, bodyFail
-  )=
-  ## Create a bag from a chunked multipart body
-  discard
+macro multipartStreamedBag*(feeder, contentType: typed,
+    rules: untyped, bodyFail: untyped = nil
+  ) =
+  ## Create a bag from a streaming multipart body using `MultipartStreamer`.
+  ## `feeder` must be a `proc(ms: var MultipartStreamer): bool {.closure.}`
+  ## that feeds multipart chunks and returns `true` to continue or
+  ## `false` when done. File validation happens on-the-fly via signature callback.
+  parseBagRules(ident"inputTypeMultipart")
+  blockStmt.add quote do:
+    inputBag.validateMultipartStreamed(`contentType`, `feeder`)
+  if bodyFail != nil:
+    add blockStmt, quote do:
+      if inputBag.isInvalid:
+        `bodyFail`
+  result = nnkBlockStmt.newTree(newEmptyNode(), blockStmt)
+  when defined debugMacrosOpenPeepsBag:
+    debugEcho result.repr
