@@ -660,8 +660,8 @@ macro withBag*(data: typed, rules: untyped, bodyFail: untyped = nil) =
 
 template withValidator*(x: typed, r: untyped, b: untyped = nil) =
   ## Create a new input bag validation at compile time.
-  ## This is an alias for `bag` macro.
-  bag(x, r, b)
+  ## This is an alias for `withBag` macro.
+  withBag(x, r, b)
 
 macro multipartBag*(data, contentType: typed,
     rules: untyped,
